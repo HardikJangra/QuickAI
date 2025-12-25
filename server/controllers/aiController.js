@@ -5,6 +5,7 @@ import dotenv from "dotenv";
 import { v2 as cloudinary } from 'cloudinary';
 import axios from "axios";
 import fs from "fs";
+import openai from "../configs/openai.js";
 // REMOVED: import pdf from "pdf-parse"; 
 
 dotenv.config();
@@ -16,44 +17,43 @@ const client = new OpenAI({
 
 export const generateArticle = async (req, res) => {
     try {
-        const { userId } = req.auth;
-        const { prompt, length } = req.body;
-        const plan = req.plan;
-        const free_usage = req.free_usage;
-
-        if (plan !== 'premium' && free_usage >= 10) {
-            return res.json({ success: false, message: "Limit reached. Upgrade to continue." })
-        }
-        const response = await client.chat.completions.create({
-            model: "gemini-1.5-flash",
-            messages: [{
-                role: "user",
-                content: prompt,
-            }],
-            temperature: 0.7,
-            max_tokens: length,
+      const { prompt, length } = req.body;
+  
+      if (!prompt) {
+        return res.status(400).json({
+          success: false,
+          message: "Prompt is required",
         });
-
-        const content = response.choices[0].message.content;
-
-        await sql`INSERT INTO creations (user_id, prompt, content, type)
-        VALUES (${userId}, ${prompt}, ${content}, 'article')`;
-
-        if (plan !== 'premium') {
-            await clerkClient.users.updateUserMetadata(userId, {
-                privateMetadata: {
-                    free_usage: free_usage + 1
-                }
-            })
-        }
-        res.json({ success: true, content })
-
+      }
+  
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: "You are a professional content writer.",
+          },
+          {
+            role: "user",
+            content: `${prompt}. Write approximately ${length} words.`,
+          },
+        ],
+        temperature: 0.7,
+      });
+  
+      res.status(200).json({
+        success: true,
+        content: completion.choices[0].message.content,
+      });
     } catch (error) {
-        console.log(error.message)
-        res.json({ success: false, message: error.message })
+      console.error("Generate Article Error:", error);
+  
+      res.status(500).json({
+        success: false,
+        message: "Failed to generate article",
+      });
     }
-}
-
+  };
 export const generateBlogTitle = async (req, res) => {
     try {
         const { userId } = req.auth;
